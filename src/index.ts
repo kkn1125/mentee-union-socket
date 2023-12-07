@@ -8,7 +8,7 @@ import { DB_CONNECTION, PORT, checkConnection } from './util/global.constants';
 import { database } from './modules/database';
 import { Manager } from './modules/manager';
 import { UserModel } from './models/user.model';
-import { axiosInstance } from './util/instances';
+import { axiosInstance, messageQueue } from './util/instances';
 /* We store the listen socket here, so that we can shut it down later */
 import * as cryptoJS from 'crypto-js';
 
@@ -70,6 +70,7 @@ checkConnection.promise().then(() => {
           const params = new URLSearchParams(req.getQuery());
           const email = params.get('e');
           const user_id = +params.get('uid');
+          const username = params.get('u');
           const profile = params.get('p');
           const url = req.getUrl();
           const secWebSocketKey = req.getHeader('sec-websocket-key');
@@ -96,7 +97,7 @@ checkConnection.promise().then(() => {
             res.cork(() => {
               /* This immediately calls open handler, you must not use res after this call */
               res.upgrade(
-                { url, email, user_id, profile },
+                { url, email, username, user_id, profile },
                 /* Use our copies here */
                 secWebSocketKey,
                 secWebSocketProtocol,
@@ -119,6 +120,7 @@ checkConnection.promise().then(() => {
           console.log(userData);
           if (
             !(
+              userData.username &&
               userData.email &&
               userData.url &&
               userData.user_id &&
@@ -127,8 +129,20 @@ checkConnection.promise().then(() => {
           ) {
             ws.close();
           } else {
+            const ifUserExists = checkConnection.manager.findUserById(
+              ws.user_id,
+            );
+
             ws.subscribe('broadcast');
-            checkConnection.manager.addUser(userData, ws);
+            const newUser = checkConnection.manager.addUser(userData, ws);
+
+            if (ifUserExists) {
+              ifUserExists.ws = ws;
+              ifUserExists.token = newUser.token;
+              newUser.joined = ifUserExists.joined;
+              ifUserExists.status = newUser.status;
+            }
+
             app.publish(
               'broadcast',
               JSON.stringify({
@@ -137,6 +151,8 @@ checkConnection.promise().then(() => {
                   channels: checkConnection.manager.channelList,
                 },
               }),
+              false,
+              true,
             );
           }
         },
@@ -153,15 +169,21 @@ checkConnection.promise().then(() => {
               ws,
               isBinary,
             })(json);
-            app.publish(
-              'broadcast',
-              JSON.stringify({
-                event: 'findAllChannels',
-                data: {
-                  channels: checkConnection.manager.channelList,
-                },
-              }),
-            );
+
+            messageQueue.push(() => {
+              app.publish(
+                'broadcast',
+                JSON.stringify({
+                  event: 'findAllChannels',
+                  data: {
+                    channels: checkConnection.manager.channelList,
+                  },
+                }),
+                isBinary,
+                true,
+              );
+            });
+
             // ws.send(
             //   JSON.stringify({
             //     event: json.event,
@@ -175,9 +197,16 @@ checkConnection.promise().then(() => {
         },
         close: (ws: UWS.WebSocket, code, message) => {
           console.log('[SYSTEM] WebSocket closed');
-          const outUser = checkConnection.manager.findUserByWs(ws);
-          if (outUser) {
-            console.log('[SYSTEM] ' + outUser.email + ' user out.');
+          // const outUser = checkConnection.manager.findUserByWs(ws);
+          // if (outUser) {
+          // outUser.joined.forEach((join) => {
+          //   const channel = checkConnection.manager.findChannelById(join);
+          //   // checkConnection.manager.outChannel(ws, join);
+          //   channel.out(outUser);
+          //   checkConnection.manager.checkUsersZeroOrOne(channel);
+          // });
+          if (ws) {
+            console.log('[SYSTEM] ' + ws.email + ' user out.');
           }
         },
       });
@@ -223,3 +252,10 @@ checkConnection.promise().then(() => {
       }, 5000);
     });
 });
+
+setInterval(() => {
+  if (messageQueue.length > 0) {
+    const queue = messageQueue.shift();
+    queue();
+  }
+}, 8);

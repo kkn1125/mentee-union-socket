@@ -4,7 +4,7 @@ export declare global {
   export declare interface Test {}
 
   export declare interface Message {
-    id: number;
+    id?: number;
     user_id: number;
     username: string;
     profile: string;
@@ -16,6 +16,7 @@ export declare global {
   declare interface CustomWs {
     url: string;
     email?: string;
+    username?: string;
     user_id?: number;
     profile?: string;
   }

@@ -5,6 +5,7 @@ import { UserModel } from '@/models/user.model';
 import { v4 } from 'uuid';
 import { UWS } from '@/types/types';
 import uWS from 'uWebSockets.js';
+import { messageQueue } from '@/util/instances';
 
 export class Manager {
   serverToken: string;
@@ -18,7 +19,7 @@ export class Manager {
   waitList: UserModel[] = [];
 
   matchingQueue: {
-    [type: string]: UserModel[];
+    [type: string]: ChannelModel[];
   } = {};
 
   constructor(app: uWS.TemplatedApp) {
@@ -27,6 +28,29 @@ export class Manager {
 
   findChannelById(channel_id: number) {
     return this.channelList.find((channel) => channel.id === channel_id);
+  }
+
+  checkUsersZeroOrOne(channel: ChannelModel) {
+    if (channel.users.length === 0) {
+      console.log('[SYSTEM] channel remove', channel.id);
+      this.removeChannel(channel.id);
+    } else if (channel.users.length === 1) {
+      channel.admin = channel.users[0];
+      this.matchingQueue[channel.category].push(channel);
+      messageQueue.push(() => {
+        this.app.publish(
+          `room${channel.id}`,
+          JSON.stringify({
+            event: 'outChannel/admin',
+            data: {
+              user: channel.admin.toJSON(),
+            },
+          }),
+          false,
+          true,
+        );
+      });
+    }
   }
 
   findUserByWs(ws: UWS.WebSocket) {
@@ -114,6 +138,7 @@ export class Manager {
     user.setApp(this.app);
     ws.subscribe('waillist');
     this.waitList.push(user);
+    return user;
   }
 
   addChannel({
@@ -128,10 +153,6 @@ export class Manager {
     user: UserModel;
   }) {
     const channelName = v4();
-    // this.channel.createChannel({
-    //   name: channelName,
-    //   url: '',
-    // });
     const channel = new ChannelModel(
       channelName,
       category,
@@ -141,27 +162,36 @@ export class Manager {
     );
     channel.join(user);
     this.channelList.push(channel);
+    return channel;
   }
 
-  // joinChannel(ws: UWS.WebSocket, channel_id: number) {
-  //   const found = this.findUserByWs(ws);
-  //   found.joinChannel(channel_id);
-  //   found.status = `room${channel_id}`;
-  // }
+  joinChannel(ws: UWS.WebSocket, channel_id: number) {
+    const found = this.findUserByWs(ws);
+    const channel = this.findChannelById(channel_id);
+    channel.join(found);
+  }
 
   outChannel(ws: UWS.WebSocket, channel_id: number) {
-    const channel = this.findChannelById(channel_id);
     const found = this.findUserByWs(ws);
-    channel.out(found);
-    found.ws.publish(
-      `room${channel_id}`,
-      JSON.stringify({
-        event: 'outChannel',
-        data: {
-          user: channel.admin.toJSON(),
-        },
-      }),
-    );
+    const channel = this.findChannelById(channel_id);
+    if (channel) {
+      channel.out(found);
+      messageQueue.push(() => {
+        found.ws.publish(
+          `room${channel_id}`,
+          JSON.stringify({
+            event: 'outChannel',
+            data: {
+              user: channel.admin.toJSON(),
+            },
+          }),
+          false,
+          true,
+        );
+      });
+    } else {
+      console.log('no channel');
+    }
   }
 
   removeChannel(channel_id: number) {
@@ -181,73 +211,91 @@ export class Manager {
       this.matchingQueue[type] = [];
     }
     if (this.matchingQueue[type].length > 0) {
-      const waitUser = this.matchingQueue[type].shift();
-      this.dequeue(type, waitUser);
-      const channel = this.findChannelByAdmin(waitUser);
-      channel.join(waitUser);
+      const channel = this.dequeue(type);
+      channel.admin.ws.unsubscribe(channel.admin.status);
+      channel.admin.status = `room${channel.id}`;
+      channel.admin.ws.subscribe(channel.admin.status);
       channel.join(user);
-      console.log('waitUser', waitUser);
-      console.log('user', user);
 
-      channel.users.forEach((_user) => {
-        _user.ws.send(
-          JSON.stringify({
-            event: 'matched',
-            data: {
-              channel_id: channel.id,
-              user: _user.toJSON(),
-            },
-          }),
-        );
+      channel.saveMessage({
+        message: `${user.ws.username}님이 매칭되었습니다.`,
+        removed: false,
+        username: 'system',
+        profile: user.profile,
+        user_id: user.user_id,
+        created_at: +new Date(),
       });
 
-      // user.ws.send(
-      //   JSON.stringify({
-      //     event: 'matched',
-      //     data: {
-      //       channel_id: channel.id,
-      //       user: user.toJSON(),
-      //     },
-      //   }),
-      // );
-      // this.app.publish(
-      //   `room${channel.id}`,
-      //   JSON.stringify({
-      //     type: 'matched',
-      //     data: {
-      //       channel_id: channel.id,
-      //     },
-      //   }),
-      // );
+      channel.saveMessage({
+        message: `서로 존중하는 건강한 멘티 문화를 만드는데 참여해주세요 :)`,
+        removed: false,
+        username: 'system',
+        profile: user.profile,
+        user_id: user.user_id,
+        created_at: +new Date(),
+      });
+
+      channel.users.forEach((_user) => {
+        console.log('send channel event matched to', _user.email);
+        messageQueue.push(() => {
+          _user.ws.send(
+            JSON.stringify({
+              event: 'matched',
+              data: {
+                channel_id: channel.id,
+                user: _user.toJSON(),
+                chattings: channel.chattings,
+              },
+            }),
+            false,
+            true,
+          );
+        });
+      });
     } else {
-      this.addChannel({
+      const channel = this.addChannel({
         category: type,
         content: content,
         limit: limit,
         user,
       });
-      this.matchingQueue[type].push(user);
+      this.matchingQueue[type].push(channel);
+      channel.saveMessage({
+        message: `${user.ws.username}님이 매칭되었습니다.`,
+        removed: false,
+        username: 'system',
+        profile: user.profile,
+        user_id: user.user_id,
+        created_at: +new Date(),
+      });
       user.status = `matching`;
       user.ws.subscribe('matching');
     }
   }
 
-  dequeue(type: string, user: UserModel) {
-    if (!user) return;
-    const index = this.matchingQueue[type].indexOf(user);
-    this.matchingQueue[type].splice(index, 1);
-    user.status = 'waitlist';
-    user?.ws?.unsubscribe?.('matching');
+  dequeue(type: string) {
+    return this.matchingQueue[type].shift();
   }
 
-  toWaitList(user_id: number) {
-    const found = this.findUserByUserIdInChannelList(user_id);
-    if (found) {
-      found.status = 'waitlist';
-      found.ws.subscribe('waitlist');
+  toWaitList(user: UserModel) {
+    if (user.status !== 'waitlist') {
+      // if (found.status.startsWith('room')) {
+      //   this.outChannel(found.ws, Number(found.status.replace('room', '')));
+      // }
+      user.joined.forEach((join) => {
+        user.ws.unsubscribe('room' + join);
+      });
+      user.status = 'waitlist';
+      user.ws.subscribe('waitlist');
     } else {
       console.log('유저가 채널에 없습니다. 이미 대기열에 있습니다.');
     }
+  }
+
+  getChannels(ws: UWS.WebSocket) {
+    return this.channelList.filter((channel) =>
+      channel.users.some((user) => user.ws === ws),
+    );
   }
 
   disconnectUser(user_id: number) {

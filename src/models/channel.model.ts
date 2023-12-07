@@ -34,7 +34,9 @@ export class ChannelModel {
   join(user: UserModel) {
     if (this.whiteList.length === 0) {
       user.joinChannel(this.id);
-      this.users.push(user);
+      if (!this.users.includes(user)) {
+        this.users.push(user);
+      }
     } else {
       const isWhiteUser = this.whiteList.includes(user.user_id);
       if (isWhiteUser) {
@@ -101,5 +103,23 @@ export class ChannelModel {
   removeMessage(message_id: number) {
     const message = this.chattings.find((chat) => chat.id === message_id);
     message.removed = true;
+  }
+
+  toJSON() {
+    return Object.assign(
+      {},
+      {
+        id: this.id,
+        name: this.name,
+        category: this.category,
+        content: this.content,
+        limit: this.limit,
+        whiteList: this.whiteList,
+        blackList: this.blackList,
+        chattings: this.chattings,
+        users: this.users.map((user) => user.toJSON()),
+        admin: this.admin.toJSON(),
+      },
+    );
   }
 }

@@ -55,19 +55,21 @@ export class UserModel {
   // }
 
   joinChannel(channel_id: number) {
+    if (!this.joined.includes(channel_id)) {
+      this.joined.push(channel_id);
+    }
     this.status = `room${channel_id}`;
-    this.joined.push(channel_id);
     this.ws.unsubscribe('waitlist');
-    this.ws.subscribe('room' + channel_id);
+    this.ws.subscribe(this.status);
   }
 
   outChannel(channel_id: number) {
+    this.ws.unsubscribe(this.status);
+    this.ws.unsubscribe(`room${channel_id}`);
     this.status = 'waitlist';
-    this.ws.unsubscribe('room' + channel_id);
     const index = this.joined.indexOf(channel_id);
     this.joined = this.joined.filter((join) => join !== index);
     this.ws.subscribe('waitlist');
-    // this.initSubscribe();
   }
 
   disconnect() {
@@ -81,6 +83,20 @@ export class UserModel {
   }
 
   toJSON() {
-    return Object.assign({}, this);
+    return Object.assign(
+      {},
+      {
+        id: this.id,
+        user_id: this.user_id,
+        profile: this.profile,
+        token: this.token,
+        email: this.email,
+        url: this.url,
+        status: this.status,
+        joined: this.joined,
+        ws: this.ws,
+        app: this.app,
+      },
+    );
   }
 }
