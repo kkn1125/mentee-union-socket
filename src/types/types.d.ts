@@ -9,7 +9,9 @@ export declare global {
     username: string;
     profile: string;
     message: string;
-    removed: boolean;
+    is_read?: boolean;
+    is_top?: boolean;
+    removed?: boolean;
     created_at: number;
   }
 

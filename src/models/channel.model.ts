@@ -97,6 +97,9 @@ export class ChannelModel {
     } else {
       message.id = 1;
     }
+    message.removed = false;
+    message.is_top = false;
+    message.is_read = false;
     this.chattings.push(message);
   }
 

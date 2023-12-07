@@ -1,5 +1,5 @@
 import { ChannelModel } from '@/models/channel.model';
-import { ChannelManager } from './channel.manager';
+import { MentoringSessionManager } from './mentoring-session.manager';
 import { UserManager } from './user.manager';
 import { UserModel } from '@/models/user.model';
 import { v4 } from 'uuid';
@@ -11,7 +11,8 @@ export class Manager {
   serverToken: string;
   app: uWS.TemplatedApp;
 
-  channel: ChannelManager = new ChannelManager();
+  mentoringSessionManager: MentoringSessionManager =
+    new MentoringSessionManager();
   user: UserManager = new UserManager();
 
   // users: UserModel[] = [];
@@ -201,7 +202,7 @@ export class Manager {
     this.channelList.splice(index, 1);
   }
 
-  addQueue(
+  async addQueue(
     type: string,
     user: UserModel,
     content: string = 'no content',
@@ -219,7 +220,6 @@ export class Manager {
 
       channel.saveMessage({
         message: `${user.ws.username}님이 매칭되었습니다.`,
-        removed: false,
         username: 'system',
         profile: user.profile,
         user_id: user.user_id,
@@ -228,7 +228,6 @@ export class Manager {
 
       channel.saveMessage({
         message: `서로 존중하는 건강한 멘티 문화를 만드는데 참여해주세요 :)`,
-        removed: false,
         username: 'system',
         profile: user.profile,
         user_id: user.user_id,
@@ -252,24 +251,48 @@ export class Manager {
           );
         });
       });
+
+      try {
+        await this.mentoringSessionManager.createMatchingMentoring(
+          channel.id,
+          channel.admin.user_id,
+          user.user_id,
+        );
+      } catch (error) {
+        console.log('createe matching mentoring error');
+      }
     } else {
-      const channel = this.addChannel({
-        category: type,
-        content: content,
-        limit: limit,
-        user,
-      });
-      this.matchingQueue[type].push(channel);
-      channel.saveMessage({
-        message: `${user.ws.username}님이 매칭되었습니다.`,
-        removed: false,
-        username: 'system',
-        profile: user.profile,
-        user_id: user.user_id,
-        created_at: +new Date(),
-      });
-      user.status = `matching`;
-      user.ws.subscribe('matching');
+      try {
+        const categoryData = await this.mentoringSessionManager.findOneCategory(
+          type,
+        );
+        if (categoryData.data) {
+          const sessionData =
+            await this.mentoringSessionManager.createMentoringSession(
+              categoryData.data.id,
+            );
+          const channel = this.addChannel({
+            category: type,
+            content: content,
+            limit: limit,
+            user,
+          });
+          this.matchingQueue[type].push(channel);
+          channel.id = sessionData.data.session_id;
+          channel.saveMessage({
+            message: `${user.ws.username}님이 매칭되었습니다.`,
+            removed: false,
+            username: 'system',
+            profile: user.profile,
+            user_id: user.user_id,
+            created_at: +new Date(),
+          });
+          user.status = `matching`;
+          user.ws.subscribe('matching');
+        }
+      } catch (error) {
+        console.log('createe mentoring session error');
+      }
     }
   }
 

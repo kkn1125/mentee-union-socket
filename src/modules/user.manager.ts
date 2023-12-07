@@ -1,8 +1,8 @@
-import { User } from '@/entities/user.entity';
+import { User } from '@/[x]entities/user.entity';
 import { Repository } from 'typeorm';
 import { database } from './database';
-import { CreateUserDto } from '@/dto/create-user.dto';
-import { UpdateUserDto } from '@/dto/update-user.dto';
+import { CreateUserDto } from '@/[x]dto/create-user.dto';
+import { UpdateUserDto } from '@/[x]dto/update-user.dto';
 
 export class UserManager {
   constructor(
@@ -13,27 +13,27 @@ export class UserManager {
     console.log('connect user manager');
   }
   findAllUsers() {
-    return this.userRepository.find();
+    // return this.userRepository.find();
   }
   findOneUserById(id: number) {
-    return this.userRepository.findOne({ where: { id } });
+    // return this.userRepository.findOne({ where: { id } });
   }
   findOneUserByEmail(email: string) {
-    return this.userRepository.findOne({ where: { email } });
+    // return this.userRepository.findOne({ where: { email } });
   }
   createUser(createUserDto: CreateUserDto) {
-    return this.userRepository.insert(createUserDto);
+    // return this.userRepository.insert(createUserDto);
   }
   updateUser(id: number, updateUserDto: UpdateUserDto) {
-    return this.userRepository.update(id, updateUserDto);
+    // return this.userRepository.update(id, updateUserDto);
   }
   softDeleteUser(id: number) {
-    return this.userRepository.softDelete({ id });
+    // return this.userRepository.softDelete({ id });
   }
   deleteUser(id: number) {
-    return this.userRepository.delete({ id });
+    // return this.userRepository.delete({ id });
   }
   restoreUser(id: number) {
-    return this.userRepository.restore({ id });
+    // return this.userRepository.restore({ id });
   }
 }

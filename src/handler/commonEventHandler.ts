@@ -113,6 +113,7 @@ export function commonEventHandler({
         const user = manager.findUserByWs(ws);
         const channel = manager.findChannelById(data.channel_id);
         channel.join(user);
+
         messageQueue.push(() => {
           user.ws.send(
             JSON.stringify({
@@ -151,6 +152,7 @@ export function commonEventHandler({
       } else if (event === 'addQueue') {
         const user = manager.findUserByWs(ws);
         manager.addQueue(data.type, user, data.content, +data.limit);
+
         messageQueue.push(() => {
           user.ws.send(
             JSON.stringify({
