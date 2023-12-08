@@ -17,10 +17,11 @@ export declare global {
 
   declare interface CustomWs {
     url: string;
-    email?: string;
-    username?: string;
-    user_id?: number;
-    profile?: string;
+    token: string;
+    email: string;
+    username: string;
+    user_id: number;
+    profile: string;
   }
 }
 

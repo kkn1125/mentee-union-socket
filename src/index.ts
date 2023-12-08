@@ -40,7 +40,7 @@ checkConnection.promise().then(() => {
   checkConnection.manager = new Manager(app);
 
   axiosInstance
-    .post('/channels/token')
+    .post('/auth/socket/token')
     .then(({ data }) => {
       const token = data.data;
       const compare = cryptoJS
@@ -72,6 +72,7 @@ checkConnection.promise().then(() => {
           const user_id = +params.get('uid');
           const username = params.get('u');
           const profile = params.get('p');
+          const token = params.get('t');
           const url = req.getUrl();
           const secWebSocketKey = req.getHeader('sec-websocket-key');
           const secWebSocketProtocol = req.getHeader('sec-websocket-protocol');
@@ -97,7 +98,7 @@ checkConnection.promise().then(() => {
             res.cork(() => {
               /* This immediately calls open handler, you must not use res after this call */
               res.upgrade(
-                { url, email, username, user_id, profile },
+                { url, email, username, user_id, profile, token },
                 /* Use our copies here */
                 secWebSocketKey,
                 secWebSocketProtocol,
@@ -129,26 +130,26 @@ checkConnection.promise().then(() => {
           ) {
             ws.close();
           } else {
-            const ifUserExists = checkConnection.manager.findUserById(
-              ws.user_id,
-            );
+            // const ifUserExists = checkConnection.manager.findUserById(
+            //   ws.user_id,
+            // );
 
             ws.subscribe('broadcast');
-            const newUser = checkConnection.manager.addUser(userData, ws);
+            // const newUser = checkConnection.manager.addUser(userData, ws);
 
-            if (ifUserExists) {
-              ifUserExists.ws = ws;
-              ifUserExists.token = newUser.token;
-              newUser.joined = ifUserExists.joined;
-              ifUserExists.status = newUser.status;
-            }
+            // if (ifUserExists) {
+            //   ifUserExists.ws = ws;
+            //   ifUserExists.token = newUser.token;
+            //   newUser.joined = ifUserExists.joined;
+            //   ifUserExists.status = newUser.status;
+            // }
 
             app.publish(
               'broadcast',
               JSON.stringify({
                 event: 'findAllChannels',
                 data: {
-                  channels: checkConnection.manager.channelList,
+                  channels: checkConnection.manager.findUsersAllChannels(ws),
                 },
               }),
               false,
@@ -170,18 +171,14 @@ checkConnection.promise().then(() => {
               isBinary,
             })(json);
 
-            messageQueue.push(() => {
-              app.publish(
-                'broadcast',
-                JSON.stringify({
-                  event: 'findAllChannels',
-                  data: {
-                    channels: checkConnection.manager.channelList,
-                  },
-                }),
-                isBinary,
-                true,
-              );
+            await commonEventHandler({
+              app,
+              ws,
+              isBinary,
+            })({
+              type: 'manager',
+              event: 'findAllChannels',
+              data: {},
             });
 
             // ws.send(
