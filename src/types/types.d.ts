@@ -23,6 +23,14 @@ export declare global {
     user_id: number;
     profile: string;
   }
+
+  declare type MentoringSessionType = {
+    category_id: number;
+    topic: string;
+    objective: string;
+    format: string;
+    note: string;
+  };
 }
 
 export declare namespace UWS {

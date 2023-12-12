@@ -1,367 +1,88 @@
-import { ChannelModel } from '@/models/channel.model';
-import { MentoringSessionManager } from './mentoring-session.manager';
-import { UserManager } from './user.manager';
-import { UserModel } from '@/models/user.model';
-import { v4 } from 'uuid';
+import { ApiManager } from '@/models/api.manager';
+import { SocketManager } from '@/models/socket.manager';
+import { SocketUser } from '@/models/socket.user';
 import { UWS } from '@/types/types';
 import uWS from 'uWebSockets.js';
-import { axiosInstance, messageQueue } from '@/util/instances';
 
 export class Manager {
-  serverToken: string;
   app: uWS.TemplatedApp;
+  serverToken: string;
 
-  // mentoringSessionManager: MentoringSessionManager =
-  //   new MentoringSessionManager();
-  // user: UserManager = new UserManager();
+  matchingQueue: {
+    [type: string]: {
+      [limit: number]: SocketUser[];
+    };
+  } = {};
 
-  // users: UserManager = new UserManager()
+  socket: SocketManager = new SocketManager();
+  api: ApiManager = new ApiManager();
 
-  // users: UserModel[] = [];
-  // channelList: ChannelModel[] = [];
-  // waitList: UserModel[] = [];
-
-  // matchingQueue: {
-  //   [type: string]: ChannelModel[];
-  // } = {};
-
-  constructor(app: uWS.TemplatedApp) {
+  constructor(app: uWS.TemplatedApp, serverToken: string) {
     this.app = app;
+    this.serverToken = serverToken;
+    this.setServerToken(this.serverToken);
+  }
+
+  async outMentoringSession(ws: UWS.WebSocket, session_id: number) {
+    await this.api.outMentoringSession(ws.user_id, session_id);
+    this.leaveSession(ws);
+    return await this.api.findUsersAllSessions(ws);
+  }
+
+  addUser(ws: UWS.WebSocket) {
+    this.socket.addUser(ws);
+  }
+
+  deleteUser(ws: UWS.WebSocket) {
+    this.socket.deleteUser(ws);
+  }
+
+  changeSession(ws: UWS.WebSocket, session_id: number) {
+    this.socket.changeSession(ws, session_id);
+  }
+
+  leaveSession(ws: UWS.WebSocket) {
+    this.socket.changeSession(ws, -1);
   }
 
   setServerToken(token: string) {
-    this.serverToken = token;
+    this.api.setServerToken(token);
   }
 
-  findUsersAllChannels(ws: UWS.WebSocket) {
-    return axiosInstance.get('/mentoring-session', {
-      headers: {
-        'channel-token': 'Bearer ' + this.serverToken,
-        user_id: ws.user_id,
-      },
-    });
+  addMatchQueue(ws: UWS.WebSocket, type: string, limit: number) {
+    if (!this.matchingQueue[type]) this.matchingQueue[type] = {};
+    if (!this.matchingQueue[type][limit]) this.matchingQueue[type][limit] = [];
+
+    this.matchingQueue[type][limit].push(this.socket.findUser(ws));
+
+    const group = this.findGroupByLimit(type, limit);
+    return group;
   }
 
-  saveMessage(ws: UWS.WebSocket, data: any) {
-    return axiosInstance.post('/messages', data, {
-      headers: {
-        'channel-token': 'Bearer ' + this.serverToken,
-        user_id: ws.user_id,
-      },
-    });
+  deleteMatchQueue(ws: UWS.WebSocket, type: string, limit: number) {
+    if (!this.matchingQueue[type]) this.matchingQueue[type] = {};
+    if (!this.matchingQueue[type][limit]) this.matchingQueue[type][limit] = [];
+
+    const delUser = this.socket.findUser(ws);
+
+    this.matchingQueue[type][limit] = this.matchingQueue[type][limit].filter(
+      (user) => user !== delUser,
+    );
+
+    this.socket.changeSession(ws, -1);
+
+    return delUser;
   }
 
-  // findChannelByUser(user_id: number) {
-  //   return axiosInstance.get(`/mentoring-session?user_id=${user_id}`, {
-  //     headers: {
-  //       'channel-token': 'Bearer ' + this.serverToken,
-  //     },
-  //   });
-  // }
+  hasGroup(type: string, limit: number) {
+    return this.matchingQueue[type][limit].length >= limit;
+  }
 
-  // findAllChannels(channel_id: number) {
-  //   return this.channelList.find((channel) => channel.id === channel_id);
-  // }
-
-  // checkUsersZeroOrOne(channel: ChannelModel) {
-  //   if (channel.users.length === 0) {
-  //     console.log('[SYSTEM] channel remove', channel.id);
-  //     this.removeChannel(channel.id);
-  //   } else if (channel.users.length === 1) {
-  //     channel.admin = channel.users[0];
-  //     this.matchingQueue[channel.category].push(channel);
-  //     messageQueue.push(() => {
-  //       this.app.publish(
-  //         `room${channel.id}`,
-  //         JSON.stringify({
-  //           event: 'outChannel/admin',
-  //           data: {
-  //             user: channel.admin.toJSON(),
-  //           },
-  //         }),
-  //         false,
-  //         true,
-  //       );
-  //     });
-  //   }
-  // }
-
-  // findUserByWs(ws: UWS.WebSocket) {
-  //   return (
-  //     this.waitList.find((user) => user.ws === ws) ||
-  //     this.channelList.reduce((acc: null | UserModel, cur) => {
-  //       if (acc === null) {
-  //         const user = cur.findUserByWs(ws);
-  //         if (user) {
-  //           return user;
-  //         }
-  //       } else {
-  //         return acc;
-  //       }
-  //     }, null)
-  //   );
-  // }
-
-  // findUserByUserIdInWaitList(user_id: number) {
-  //   return this.waitList.find((user) => user.user_id === user_id);
-  // }
-
-  // removeUserInWaitList(ws: UWS.WebSocket) {
-  //   const found = this.findUserByWs(ws);
-  //   if (found) {
-  //     const index = this.waitList.indexOf(found);
-  //     if (index === -1) {
-  //       console.log('해당 유저는 대기열에 없습니다.');
-  //       return null;
-  //     } else {
-  //       this.waitList.splice(index, 1);
-  //       return found;
-  //     }
-  //   } else {
-  //     console.log('해당 유저는 이미 삭제되었습니다.');
-  //     return null;
-  //   }
-  // }
-
-  // removeUserInChannels(ws: UWS.WebSocket) {
-  //   const found = this.findUserByWs(ws);
-  //   found.joined.forEach((join) => {
-  //     found.outChannel(join);
-  //   });
-  //   const channels = this.channelList.filter((channel) =>
-  //     channel.users.includes(found),
-  //   );
-  //   if (channels.length > 0) {
-  //     channels.forEach((channel) => {
-  //       channel.out(found);
-  //     });
-  //     return found;
-  //   } else {
-  //     console.log('해당 유저는 채널에 없습니다.');
-  //     return null;
-  //   }
-  // }
-
-  // findUserByUserIdInChannelList(user_id: number) {
-  //   for (const channel of this.channelList) {
-  //     return channel.users.find((user) => user.user_id === user_id);
-  //   }
-
-  //   return null;
-  // }
-
-  // findUserById(user_id: number) {
-  //   return (
-  //     this.findUserByUserIdInWaitList(user_id) ||
-  //     this.findUserByUserIdInChannelList(user_id)
-  //   );
-  // }
-
-  // findChannelByAdmin(user: UserModel) {
-  //   return this.channelList.find((channel) => channel.admin === user);
-  // }
-
-  // setServerToken(token: string) {
-  //   this.serverToken = token;
-  // }
-
-  // addUser(userData: CustomWs, ws: UWS.WebSocket) {
-  //   const user = new UserModel(userData);
-  //   user.setWs(ws);
-  //   user.setApp(this.app);
-  //   ws.subscribe('waillist');
-  //   this.waitList.push(user);
-  //   return user;
-  // }
-
-  // addChannel({
-  //   category,
-  //   content,
-  //   limit,
-  //   user,
-  // }: {
-  //   category: string;
-  //   content: string;
-  //   limit: number;
-  //   user: UserModel;
-  // }) {
-  //   const channelName = v4();
-  //   const channel = new ChannelModel(
-  //     channelName,
-  //     category,
-  //     content,
-  //     limit,
-  //     user,
-  //   );
-  //   channel.join(user);
-  //   this.channelList.push(channel);
-  //   return channel;
-  // }
-
-  // joinChannel(ws: UWS.WebSocket, channel_id: number) {
-  //   const found = this.findUserByWs(ws);
-  //   const channel = this.findChannelById(channel_id);
-  //   channel.join(found);
-  // }
-
-  // outChannel(ws: UWS.WebSocket, channel_id: number) {
-  //   const found = this.findUserByWs(ws);
-  //   const channel = this.findChannelById(channel_id);
-  //   if (channel) {
-  //     channel.out(found);
-  //     messageQueue.push(() => {
-  //       found.ws.publish(
-  //         `room${channel_id}`,
-  //         JSON.stringify({
-  //           event: 'outChannel',
-  //           data: {
-  //             user: channel.admin.toJSON(),
-  //           },
-  //         }),
-  //         false,
-  //         true,
-  //       );
-  //     });
-  //   } else {
-  //     console.log('no channel');
-  //   }
-  // }
-
-  // removeChannel(channel_id: number) {
-  //   const index = this.channelList.findIndex(
-  //     (channel) => channel.id === channel_id,
-  //   );
-  //   this.channelList.splice(index, 1);
-  // }
-
-  // async addQueue(
-  //   type: string,
-  //   user: UserModel,
-  //   content: string = 'no content',
-  //   limit: number = 5,
-  // ) {
-  //   if (!this.matchingQueue[type]) {
-  //     this.matchingQueue[type] = [];
-  //   }
-  //   if (this.matchingQueue[type].length > 0) {
-  //     const channel = this.dequeue(type);
-  //     channel.admin.ws.unsubscribe(channel.admin.status);
-  //     channel.admin.status = `room${channel.id}`;
-  //     channel.admin.ws.subscribe(channel.admin.status);
-  //     channel.join(user);
-
-  //     channel.saveMessage({
-  //       message: `${user.ws.username}님이 매칭되었습니다.`,
-  //       username: 'system',
-  //       profile: user.profile,
-  //       user_id: user.user_id,
-  //       created_at: +new Date(),
-  //     });
-
-  //     channel.saveMessage({
-  //       message: `서로 존중하는 건강한 멘티 문화를 만드는데 참여해주세요 :)`,
-  //       username: 'system',
-  //       profile: user.profile,
-  //       user_id: user.user_id,
-  //       created_at: +new Date(),
-  //     });
-
-  //     channel.users.forEach((_user) => {
-  //       console.log('send channel event matched to', _user.email);
-  //       messageQueue.push(() => {
-  //         _user.ws.send(
-  //           JSON.stringify({
-  //             event: 'matched',
-  //             data: {
-  //               channel_id: channel.id,
-  //               user: _user.toJSON(),
-  //               chattings: channel.chattings,
-  //             },
-  //           }),
-  //           false,
-  //           true,
-  //         );
-  //       });
-  //     });
-
-  //     try {
-  //       await this.mentoringSessionManager.createMatchingMentoring(
-  //         channel.id,
-  //         channel.admin.user_id,
-  //         user.user_id,
-  //       );
-  //     } catch (error) {
-  //       console.log('createe matching mentoring error');
-  //     }
-  //   } else {
-  //     try {
-  //       const categoryData = await this.mentoringSessionManager.findOneCategory(
-  //         type,
-  //       );
-  //       if (categoryData.data) {
-  //         const sessionData =
-  //           await this.mentoringSessionManager.createMentoringSession(
-  //             categoryData.data.id,
-  //           );
-  //         const channel = this.addChannel({
-  //           category: type,
-  //           content: content,
-  //           limit: limit,
-  //           user,
-  //         });
-  //         this.matchingQueue[type].push(channel);
-  //         channel.id = sessionData.data.session_id;
-  //         channel.saveMessage({
-  //           message: `${user.ws.username}님이 매칭되었습니다.`,
-  //           removed: false,
-  //           username: 'system',
-  //           profile: user.profile,
-  //           user_id: user.user_id,
-  //           created_at: +new Date(),
-  //         });
-  //         user.status = `matching`;
-  //         user.ws.subscribe('matching');
-  //       }
-  //     } catch (error) {
-  //       console.log('createe mentoring session error');
-  //     }
-  //   }
-  // }
-
-  // dequeue(type: string) {
-  //   return this.matchingQueue[type].shift();
-  // }
-
-  // toWaitList(user: UserModel) {
-  //   if (user.status !== 'waitlist') {
-  //     // if (found.status.startsWith('room')) {
-  //     //   this.outChannel(found.ws, Number(found.status.replace('room', '')));
-  //     // }
-  //     user.joined.forEach((join) => {
-  //       user.ws.unsubscribe('room' + join);
-  //     });
-  //     user.status = 'waitlist';
-  //     user.ws.subscribe('waitlist');
-  //   } else {
-  //     console.log('유저가 채널에 없습니다. 이미 대기열에 있습니다.');
-  //   }
-  // }
-
-  // getChannels(ws: UWS.WebSocket) {
-  //   return this.channelList.filter((channel) =>
-  //     channel.users.some((user) => user.ws === ws),
-  //   );
-  // }
-
-  // disconnectUser(user_id: number) {
-  //   const found = this.findUserById(user_id);
-  //   if (found) {
-  //     const result =
-  //       this.removeUserInWaitList(found.ws) ||
-  //       this.removeUserInChannels(found.ws);
-  //     result.disconnect();
-  //   } else {
-  //     console.log('유저가 채널에 없습니다. 이미 대기열에 있습니다.');
-  //   }
-  // }
+  findGroupByLimit(type: string, limit: number) {
+    if (this.hasGroup(type, limit)) {
+      return this.matchingQueue[type][limit].splice(0, limit);
+    } else {
+      return this.matchingQueue[type][limit];
+    }
+  }
 }
