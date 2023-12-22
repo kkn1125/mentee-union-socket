@@ -36,6 +36,7 @@ export enum TYPE {
 export enum EVENT {
   /* session */
   FINDALL_SESSION = 'sessions/findall',
+  UPDATE_SESSION = 'sessions/update',
   CHANGE_SESSION = 'sessions/change',
   LEAVE_SESSION = 'sessions/leave',
   OUT_SESSION = 'sessions/out',
@@ -47,10 +48,13 @@ export enum EVENT {
   MATCHED_USER = 'users/matched',
   /* message */
   FINDALL_MESSAGE = 'messages/findAll',
+  READ_SESSIONS_MESSAGE = 'messages/readsessionsmessage',
+  REMOVE_MESSAGE = 'messages/removechat',
   SAVE_MESSAGE = 'messages/save',
+  NEW_MESSAGE = 'messages/new',
 }
 
-export const USERE_STATE = {
+export const USER_STATE = {
   WAITLIST: 'waitlist',
   MATCHING: 'matching',
   SESSION: (session_id: number) => `session${session_id}`,

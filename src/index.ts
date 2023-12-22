@@ -39,7 +39,7 @@ export function startServer(serverToken: string) {
     upgrade: handleUpgrade,
     open: handleOpen,
     message: async (ws: UWS.WebSocket, message, isBinary) => {
-      pkg.ws = ws;
+      // pkg.ws = ws;
       /* Ok is false if backpressure was built up, wait for drain */
       if (isBinary) {
         // binary data
@@ -75,9 +75,9 @@ function handleUpgrade(
   req: uWS.HttpRequest,
   context: uWS.us_socket_context_t,
 ) {
-  // console.log(
-  //   'An Http connection wants to become WebSocket, URL: ' + req.getUrl() + '!',
-  // );
+  console.log(
+    'An Http connection wants to become WebSocket, URL: ' + req.getUrl() + '!',
+  );
 
   /* Keep track of abortions */
   const upgradeAborted = { aborted: false };
@@ -88,7 +88,6 @@ function handleUpgrade(
   const user_id = +params.get('uid');
   const username = params.get('u');
   const profile = params.get('p');
-  const token = params.get('t');
   const url = req.getUrl();
   const secWebSocketKey = req.getHeader('sec-websocket-key');
   const secWebSocketProtocol = req.getHeader('sec-websocket-protocol');
@@ -106,7 +105,7 @@ function handleUpgrade(
     res.cork(() => {
       /* This immediately calls open handler, you must not use res after this call */
       res.upgrade(
-        { url, email, username, user_id, profile, token },
+        { url, email, username, user_id, profile },
         /* Use our copies here */
         secWebSocketKey,
         secWebSocketProtocol,
@@ -118,6 +117,7 @@ function handleUpgrade(
 
   /* You MUST register an abort handler to know if the upgrade was aborted by peer */
   res.onAborted(() => {
+    console.log('aborted');
     /* We can simply signal that we were aborted */
     upgradeAborted.aborted = true;
   });
@@ -125,32 +125,54 @@ function handleUpgrade(
 
 async function handleOpen(ws: UWS.WebSocket) {
   console.log('[SYSTEM] A WebSocket connected with URL: ' + ws.url);
-
-  const userData = ws.getUserData();
-  if (
-    !(
-      userData.username &&
-      userData.email &&
-      userData.url &&
-      userData.user_id &&
-      userData.profile
-    )
-  ) {
-    ws.close();
-  } else {
-    ws.subscribe('broadcast');
-    ws.subscribe('waitlist');
-    pkg.manager.socket.addUser(ws);
-    handleNonBinaryData(app, ws)(TYPE.SESSIONS, EVENT.FINDALL_SESSION, {});
-  }
+  messageQueue.push(() => {
+    try {
+      const userData = ws.getUserData();
+      if (
+        userData.username === undefined ||
+        userData.email === undefined ||
+        userData.url === undefined ||
+        userData.user_id === undefined ||
+        userData.profile === undefined
+      ) {
+        console.log(
+          userData.username,
+          userData.email,
+          userData.url,
+          userData.user_id,
+          userData.profile,
+        );
+        ws.end();
+      } else {
+        try {
+          ws.subscribe('broadcast');
+          ws.subscribe('waitlist');
+          pkg.manager.socket.addUser(ws);
+          handleNonBinaryData(app, ws)(
+            TYPE.SESSIONS,
+            EVENT.FINDALL_SESSION,
+            {},
+          );
+        } catch (error) {
+          console.log('catch open subscribe error:', error);
+        }
+      }
+    } catch (error) {
+      console.log('catch close error:', error);
+    }
+  });
 }
 
 function handleClose(ws: UWS.WebSocket, code: number, message: ArrayBuffer) {
-  console.log('[SYSTEM] WebSocket closed');
+  console.log('[SYSTEM] WebSocket closed\ncode:', code, message);
   // });
-  if (ws) {
-    console.log('[SYSTEM] ' + ws.email + ' user out.');
-    pkg.manager.deleteUser(ws);
+  try {
+    if (ws) {
+      console.log('[SYSTEM] ' + ws.email + ' user out.');
+      pkg.manager.deleteUser(ws);
+    }
+  } catch (error) {
+    console.log('catch close error:', error);
   }
 }
 
@@ -176,11 +198,11 @@ async function excuteSocketServer() {
     queue = setInterval(() => {
       if (messageQueue.length > 0) {
         const queue = messageQueue.shift();
-        queue();
+        queue?.();
       }
     }, 8);
   } catch (error) {
-    console.log('api server error', error);
+    console.log('catch queue error', error);
     clearInterval(queue);
   }
 }

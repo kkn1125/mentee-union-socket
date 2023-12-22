@@ -2,6 +2,7 @@ import { ApiManager } from '@/models/api.manager';
 import { SocketManager } from '@/models/socket.manager';
 import { SocketUser } from '@/models/socket.user';
 import { UWS } from '@/types/types';
+import { pkg } from '@/util/instances';
 import uWS from 'uWebSockets.js';
 
 export class Manager {
@@ -23,8 +24,13 @@ export class Manager {
     this.setServerToken(this.serverToken);
   }
 
+  saveSystemMessageAndGet(data: { session_id: number; message: string }) {
+    return this.api.saveSystemMessageAndGet(data);
+  }
+
   async outMentoringSession(ws: UWS.WebSocket, session_id: number) {
-    await this.api.outMentoringSession(ws.user_id, session_id);
+    const user = pkg.users.get(ws);
+    await this.api.outMentoringSession(user.user_id, session_id);
     this.leaveSession(ws);
     return await this.api.findUsersAllSessions(ws);
   }
