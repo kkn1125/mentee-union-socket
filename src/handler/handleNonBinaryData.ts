@@ -5,7 +5,7 @@ import { messageQueue, pkg } from '@/util/instances';
 import * as uWS from 'uWebSockets.js';
 
 /**
- * // TODO: 랜덤 매칭 시스템은 문제의 소지가 있음
+ * // DONE: 랜덤 매칭 시스템은 문제의 소지가 있음
  * "매칭 성사 시 연결"에서
  * "방 설정 후 생성"하는 방식으로 변경
  */
